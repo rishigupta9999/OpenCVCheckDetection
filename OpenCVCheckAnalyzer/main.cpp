@@ -3,6 +3,8 @@
 #include <opencv2/highgui/highgui.hpp>
 #include "opencv/cvaux.hpp"
 
+using namespace cv;
+
 void ExerciseFive()
 {
     // Load an image from file - change this based on your image name
@@ -180,7 +182,7 @@ void ExerciseTen()
         Sobel(frame, sobely, CV_64F, 0, 1, 5);
         
         Mat edges;
-        Canny(frame, edges, 100, 200);
+        Canny(frame, edges, 0, 200);
         
         /*sobelx = cv2.Sobel(frame,cv2.CV_64F,1,0,ksize=5)
          sobely = cv2.Sobel(frame,cv2.CV_64F,0,1,ksize=5)
@@ -247,12 +249,212 @@ void ExerciseEleven()
     }
 }
 
+void ExerciseTwelve()
+{
+    using namespace cv;
+    
+    Mat img;
+    img = imread("opencv-python-foreground-extraction-tutorial.jpg");
+    //printf("%d, %d, %d, %d", img.type(), img.depth(), img.channels());
+    
+    Mat result;
+    Mat bgdModel;
+    Mat fgdModel;
+    
+    Rect rect(50, 50, 300, 200);
+    
+    grabCut(img, result, rect, bgdModel, fgdModel, 1, GC_INIT_WITH_RECT);
+    
+    compare(result, GC_PR_FGD, result, CMP_EQ);
+    
+    Mat foreground(img.size(), CV_8UC3, cv::Scalar(255, 255, 255));
+    img.copyTo(foreground, result);
+    
+    cv::imshow("foo", foreground);
+    cv::waitKey();
+}
+
+cv::Point2f computeIntersect(cv::Vec4i a, cv::Vec4i b)
+{
+    int x1 = a[0], y1 = a[1], x2 = a[2], y2 = a[3];
+    int x3 = b[0], y3 = b[1], x4 = b[2], y4 = b[3];
+    if (float d = ((float)(x1-x2) * (y3-y4)) - ((y1-y2) * (x3-x4)))
+    {
+        cv::Point2f pt;
+        pt.x = ((x1*y2 - y1*x2) * (x3-x4) - (x1-x2) * (x3*y4 - y3*x4)) / d;
+        pt.y = ((x1*y2 - y1*x2) * (y3-y4) - (y1-y2) * (x3*y4 - y3*x4)) / d;
+        //-10 is a threshold, the POI can be off by at most 10 pixels
+        if(pt.x<min(x1,x2)-10||pt.x>max(x1,x2)+10||pt.y<min(y1,y2)-10||pt.y>max(y1,y2)+10){
+            return Point2f(-1,-1);
+        }
+        if(pt.x<min(x3,x4)-10||pt.x>max(x3,x4)+10||pt.y<min(y3,y4)-10||pt.y>max(y3,y4)+10){
+            return Point2f(-1,-1);
+        }
+        return pt;
+    }
+    else
+        return cv::Point2f(-1, -1);
+}
+
+void FindConnectedComponents(vector<Vec4i>& lines, Mat& img2, vector<vector<cv::Point2f>>& corners)
+{
+    int* poly = new int[lines.size()];
+    
+    for(int i=0;i<lines.size();i++)poly[i] = - 1;
+    
+    int curPoly = 0;
+    
+    for (int i = 0; i < lines.size(); i++)
+    {
+        for (int j = i+1; j < lines.size(); j++)
+        {
+            cv::Point2f pt = computeIntersect(lines[i], lines[j]);
+            
+            if (pt.x >= 0 && pt.y >= 0&&pt.x<img2.size().width&&pt.y<img2.size().height){
+                
+                if(poly[i]==-1&&poly[j] == -1){
+                    vector<Point2f> v;
+                    v.push_back(pt);
+                    corners.push_back(v);
+                    poly[i] = curPoly;
+                    poly[j] = curPoly;
+                    curPoly++;
+                    continue;
+                }
+                if(poly[i]==-1&&poly[j]>=0){
+                    corners[poly[j]].push_back(pt);
+                    poly[i] = poly[j];
+                    continue;
+                }
+                if(poly[i]>=0&&poly[j]==-1){
+                    corners[poly[i]].push_back(pt);
+                    poly[j] = poly[i];
+                    continue;
+                }
+                if(poly[i]>=0&&poly[j]>=0){
+                    if(poly[i]==poly[j]){
+                        corners[poly[i]].push_back(pt);
+                        continue;
+                    }
+                    
+                    for(int k=0;k<corners[poly[j]].size();k++){
+                        corners[poly[i]].push_back(corners[poly[j]][k]);
+                    }
+                    
+                    corners[poly[j]].clear();
+                    poly[j] = poly[i];
+                    continue;
+                }
+            }
+        }
+    }
+    
+    printf("Foo");
+}
+
+bool comparator(Point2f a,Point2f b){
+    return a.x<b.x;
+}
+
+void sortCorners(std::vector<cv::Point2f>& corners, cv::Point2f center)
+{
+    std::vector<cv::Point2f> top, bot;
+    for (int i = 0; i < corners.size(); i++)
+    {
+        if (corners[i].y < center.y)
+            top.push_back(corners[i]);
+        else
+            bot.push_back(corners[i]);
+    }
+    sort(top.begin(),top.end(),comparator);
+    sort(bot.begin(),bot.end(),comparator);
+    cv::Point2f tl = top[0];
+    cv::Point2f tr = top[top.size()-1];
+    cv::Point2f bl = bot[0];
+    cv::Point2f br = bot[bot.size()-1];
+    corners.clear();
+    corners.push_back(tl);
+    corners.push_back(tr);
+    corners.push_back(br);
+    corners.push_back(bl);
+}
+
 int main(int argc, char** argv)
 {
+    using namespace cv;
+    
+    Mat img;
+    img = imread("check_image_small.jpg");
+    
+    Mat gray;
+    cvtColor(img, gray, COLOR_BGR2GRAY);
+    
+    Mat blur;
+    GaussianBlur(gray, blur, Size(3, 3), 0);
+    
+    Mat edges;
+    Canny(blur, edges, 0, 255);
+    
+    vector<Vec2f> lines;
+    HoughLines(edges, lines, 1, CV_PI/180, 100, 0);
+    
+    Mat lineImage;
+    cvtColor(edges, lineImage, CV_GRAY2BGR);
+    
+    for( size_t i = 0; i < lines.size(); i++ )
+    {
+        float rho = lines[i][0], theta = lines[i][1];
+        Point pt1, pt2;
+        double a = cos(theta), b = sin(theta);
+        double x0 = a*rho, y0 = b*rho;
+        pt1.x = cvRound(x0 + 1000*(-b));
+        pt1.y = cvRound(y0 + 1000*(a));
+        pt2.x = cvRound(x0 - 1000*(-b));
+        pt2.y = cvRound(y0 - 1000*(a));
+        line( lineImage, pt1, pt2, Scalar(0,0,255), 3, CV_AA);
+    }
+    
+    Mat probLineImage;
+    cvtColor(edges, probLineImage, CV_GRAY2BGR);
+    
+    vector<Vec4i> probLines;
+    HoughLinesP(edges, probLines, 1, CV_PI/180, 100, 200, 100 );
+    
+    for( size_t i = 0; i < probLines.size(); i++ )
+    {
+        Vec4i l = probLines[i];
+        line( probLineImage, Point(l[0], l[1]), Point(l[2], l[3]), Scalar(i * 10,i * 20,255), 3, CV_AA);
+    }
+    
+    vector<vector<cv::Point2f>> corners;
+    
+    FindConnectedComponents(probLines, edges, corners);
+    
+    for(int i=0;i<corners.size();i++)
+    {
+        cv::Point2f center(0,0);
+        if(corners[i].size()<4)continue;
+        for(int j=0;j<corners[i].size();j++){
+            center += corners[i][j];
+        }
+        center *= (1. / corners[i].size());
+        sortCorners(corners[i], center);
+    }
     
     
+    for (auto corner : corners)
+    {
+        for (auto point : corner)
+        {
+            circle(probLineImage, point, 5, Scalar(0, 0, 255));
+        }
+    }
     
-    cv::imshow("foo", img_bgr);
+    
+    cv::imshow("blur", blur);
+    cv::imshow("x", edges);
+    cv::imshow("lines", lineImage);
+    cv::imshow("probLines", probLineImage);
     cv::waitKey();
     
     
