@@ -1,7 +1,9 @@
 // Example showing how to read and write images
 #include <opencv2/opencv.hpp>
 #include <opencv2/highgui/highgui.hpp>
-#include "opencv/cvaux.hpp"
+#include "opencv/cvaux.h"
+#include "tesseract/baseapi.h"
+#include "leptonica/allheaders.h"
 
 #include <iostream>
 
@@ -352,8 +354,6 @@ void FindConnectedComponents(vector<Vec4i>& lines, Mat& img2, vector<vector<cv::
             }
         }
     }
-    
-    printf("Foo");
 }
 
 bool comparator_x(Point2f a,Point2f b){
@@ -514,7 +514,7 @@ void FindContours()
     cv::waitKey();
 }
 
-int main(void)
+int main(int argc, char* argv[])
 {
     using namespace cv;
     
@@ -627,11 +627,14 @@ int main(void)
         Mat dstOrig;
         warpAffine(origImg, dstOrig, rot_mat, origImg.size());
 
-        /*cv::imshow("blur", blur);
-        cv::imshow("x", edges);
-        cv::imshow("probLines", probLineImage);
-        cv::imshow("rotated", dst);
-        cv::waitKey();*/
+        if (pass == 1)
+        {
+            cv::imshow("img", img);
+            cv::imshow("x", edges);
+            cv::imshow("probLines", probLineImage);
+            cv::waitKey();
+            cv::destroyAllWindows();
+        }
         
         dst.copyTo(img);
         dstOrig.copyTo(origImg);
@@ -672,31 +675,35 @@ int main(void)
     cv::Mat mask;
     cv::threshold(img2gray, mask, 100, 255, cv::THRESH_BINARY);
     
+    cv::imshow("cropped", finalImage);
+    cv::imshow("inverted", inverted);
+    cv::imshow("threshold", mask);
+    
+    
     cv::imwrite("extracted_check_no_p.jpg", mask);
     
-
-/*
-    // Define the destination image
-    cv::Mat quad = cv::Mat::zeros(r.height, r.width, CV_8UC3);
-    // Corners of the destination image
-    std::vector<cv::Point2f> quad_pts;
-    quad_pts.push_back(cv::Point2f(0, 0));
-    quad_pts.push_back(cv::Point2f(quad.cols, 0));
-    quad_pts.push_back(cv::Point2f(quad.cols, quad.rows));
-    quad_pts.push_back(cv::Point2f(0, quad.rows));
-    // Get transformation matrix
-    cv::Mat transmtx = cv::getPerspectiveTransform(rotatedPoints, quad_pts);
-    // Apply perspective transformation
-    cv::warpPerspective(origImg, quad, transmtx, quad.size());
-    std::stringstream ss;
-    ss<<0<<".jpg";
-    imshow(ss.str(), quad);
-
+    char *outText;
     
-    cv::imshow("Final", img);
+    tesseract::TessBaseAPI *api = new tesseract::TessBaseAPI();
+    // Initialize tesseract-ocr with English, without specifying tessdata path
+    if (api->Init("/Users/rishig/Hackathon/CheckAnalyzer/OpenCVCheckAnalyzer/Resources", "mcr")) {
+        fprintf(stderr, "Could not initialize tesseract.\n");
+        exit(1);
+    }
+    
+    // Open input image with leptonica library
+    Pix *image = pixRead("extracted_check_no_p.jpg");
+    api->SetImage(image);
+    // Get OCR result
+    outText = api->GetUTF8Text();
+    printf("OCR output:\n%s", outText);
+    
     cv::waitKey();
     
-    cv::imwrite("extracted_check.jpg", quad);*/
+    // Destroy used object and release memory
+    api->End();
+    delete [] outText;
+    pixDestroy(&image);
     
     return 0;
 }
